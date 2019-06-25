@@ -28,8 +28,6 @@ spec:
               value: "{{PORT}}"
             - name: LOGGING_LEVEL
               value: {{LOGGING_LEVEL}}
-            - name: APP_STAGE
-              value: {{APP_STAGE}}
           envFrom:
           - configMapRef:
               name: {{CF_REPO_NAME}}-environment-variables
