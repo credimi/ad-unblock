@@ -1,0 +1,109 @@
+version: "1.0"
+
+steps:
+  # Set up some environment variables. These could be stored as secret vars in codefresh.
+  set-production-vars:
+    image: alpine:latest
+    commands:
+      - cf_export K8S_CLUSTER=prod-credimi-com
+      - cf_export BUILD_IMAGE="credimi/${{CF_REPO_NAME}}:${{CF_SHORT_REVISION}}"
+      - cf_export HOST="block.credimi.com"
+      - cf_export NAMESPACE="prod"
+      - cf_export MIAOW="prod"
+      - cf_export PORT="80"
+      - cf_export LOGGING_LEVEL="info"
+      - cf_export INGRESS_CLASS=public-ingress
+    when:
+      condition:
+        all:
+          semverTag: 'match("${{CF_BRANCH}}", "^release-[0-9]{8}|[a-z]\b", true) == true'
+
+  set-staging-vars:
+    image: alpine:latest
+    environment:
+      - TLD=qa.credimi.com
+    commands:
+      - cf_export K8S_CLUSTER=qa-credimi-com
+      - cf_export BUILD_IMAGE="credimi/${{CF_REPO_NAME}}:${{CF_SHORT_REVISION}}"
+      - cf_export HOST="${{CF_BRANCH_TAG_NORMALIZED}}-block.$TLD"
+      - cf_export NAMESPACE="${{CF_BRANCH_TAG_NORMALIZED}}"
+      - cf_export MIAOW="staging"
+      - cf_export PORT="80"
+      - cf_export LOGGING_LEVEL="debug"
+      - cf_export INGRESS_CLASS=internal-ingress
+
+    when:
+      condition:
+        any:
+          semverTag: 'match("${{CF_BRANCH}}", "^release-[0-9]{8}|[a-z]\b", true) == false'
+  # It's often very useful to see what vars are available in the build environment
+  see-them-vars:
+    image: alpine:latest
+    commands:
+      - env
+
+  publish:
+    type: push
+    candidate: ${{build}}
+    tag: ${{CF_SHORT_REVISION}}
+    credentials:
+      username: ${{DOCKERHUB_USERNAME}}
+      password: ${{DOCKERHUB_PWD}}
+    fail-fast: false
+
+  running-namespace-script:
+    type: deploy
+    kind: kubernetes
+    cluster: ${{K8S_CLUSTER}}
+    namespace: ${{NAMESPACE}}
+    file_path: ./k8s/namespace.yaml
+    when:
+      condition:
+        any:
+          semverTag: 'match("${{CF_BRANCH}}", "^release-[0-9]{8}|[a-z]\b", true) == false'
+
+  secret-controller:
+    image: codefresh/cf-deploy-kubernetes
+    commands:
+      - kubectl config use-context ${{K8S_CLUSTER}}
+      - bash -c 'kubectl get secret dockerhub-instapartners --export -o yaml | kubectl apply --namespace=${{NAMESPACE}} -f -'
+      - bash -c 'kubectl get secret ${{CF_REPO_NAME}}-secrets --export -o yaml | kubectl apply --namespace=${{NAMESPACE}} -f -'
+    when:
+      condition:
+        any:
+          semverTag: 'match("${{CF_BRANCH}}", "^release-[0-9]{8}|[a-z]\b", true) == false'
+
+  running-deploy-script:
+    type: deploy
+    kind: kubernetes
+    cluster: ${{K8S_CLUSTER}}
+    namespace: ${{NAMESPACE}}
+    file_path: ./k8s/deployment.yaml
+
+  running-service-script:
+    type: deploy
+    kind: kubernetes
+    cluster: ${{K8S_CLUSTER}}
+    namespace: ${{NAMESPACE}}
+    file_path: ./k8s/service.yaml
+
+  running-ingress-script:
+    type: deploy
+    kind: kubernetes
+    cluster: ${{K8S_CLUSTER}}
+    namespace: ${{NAMESPACE}}
+    file_path: ./k8s/ingress.yaml
+
+  # Report status and review app URL back to Github.
+  notify-git-hub-pr-env-creating:
+    image: cloudposse/github-status-updater
+    environment:
+      - GITHUB_ACTION=update_state
+      - GITHUB_TOKEN=${{GITHUB_TOKEN}}
+      - GITHUB_OWNER=${{CF_REPO_OWNER}}
+      - GITHUB_REPO=${{CF_REPO_NAME}}
+      - GITHUB_REF=${{CF_REVISION}}
+      - GITHUB_CONTEXT=Pull Request Environment
+      - GITHUB_STATE=success
+      - GITHUB_DESCRIPTION=Creating Pull Request Environment
+      - GITHUB_TARGET_URL=http://${{HOST}}
