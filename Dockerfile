@@ -8,5 +8,4 @@ RUN yarn config set loglevel warn
 COPY . /app
 
 EXPOSE 80
-CMD ["npm", "install"]
-CMD ["npm", "run", "run:forever"]
+CMD npm install && npm run run:forever
