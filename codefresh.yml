@@ -42,6 +42,11 @@ steps:
     commands:
       - env
 
+  build:
+    type: build
+    image-name: credimi/${{CF_REPO_NAME}}
+    tag: ${{CF_SHORT_REVISION}}
+
   publish:
     type: push
     candidate: ${{build}}
@@ -57,17 +62,6 @@ steps:
     cluster: ${{K8S_CLUSTER}}
     namespace: ${{NAMESPACE}}
     file_path: ./k8s/namespace.yaml
-    when:
-      condition:
-        any:
-          semverTag: 'match("${{CF_BRANCH}}", "^release-[0-9]{8}|[a-z]\b", true) == false'
-
-  secret-controller:
-    image: codefresh/cf-deploy-kubernetes
-    commands:
-      - kubectl config use-context ${{K8S_CLUSTER}}
-      - bash -c 'kubectl get secret dockerhub-instapartners --export -o yaml | kubectl apply --namespace=${{NAMESPACE}} -f -'
-      - bash -c 'kubectl get secret ${{CF_REPO_NAME}}-secrets --export -o yaml | kubectl apply --namespace=${{NAMESPACE}} -f -'
     when:
       condition:
         any:
